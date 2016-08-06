@@ -88,7 +88,25 @@ enum {
     // Notify on autofocus start and stop. This is useful in continuous
     // autofocus - FOCUS_MODE_CONTINUOUS_VIDEO and FOCUS_MODE_CONTINUOUS_PICTURE.
     CAMERA_MSG_FOCUS_MOVE = 0x0800,       // notifyCallback
+    CAMERA_MSG_CONTINUOUSSNAP = 0x1000,    //notifyCallback for continuous snap
+    CAMERA_MSG_SNAP = 0x2000,              //notifyCallback of setting camera idle  for single snap
+    CAMERA_MSG_SNAP_THUMB = 0x4000,        //notifyCallback of saving thumb for single snap
+    CAMERA_MSG_SNAP_FD= 0x8000,            //notifyCallback of requesting fd for single and continuoussnap
     CAMERA_MSG_ALL_MSGS = 0xFFFF
+};
+/** msgType in Smart mode notifyCallback */
+enum {
+    CAMERA_SMART_MSG_STATUS = 0xF001,          // notifyCallback
+};
+
+/** result in smart detection */
+enum {
+    SMART_STATUS_UNKNOWN          = 0x00,
+    SMART_STATUS_ERROR            = 0x01,
+    SMART_STATUS_ROTATION_0       = 0x10,
+    SMART_STATUS_ROTATION_90      = 0x20,
+    SMART_STATUS_ROTATION_180     = 0x40,
+    SMART_STATUS_ROTATION_270     = 0x80,
 };
 
 /** cmdType in sendCommand functions */
@@ -174,6 +192,18 @@ enum {
      * count is non-positive or too big to be realized.
      */
     CAMERA_CMD_SET_VIDEO_BUFFER_COUNT = 10,
+	/**
+     * Start the smart detection.
+     */
+	CAMERA_CMD_START_SMART_DETECTION = 100,
+
+    /**
+     * Stop the smart detection.
+     */
+    CAMERA_CMD_STOP_SMART_DETECTION = 200,
+
+    CAMERA_CMD_SET_SCREEN_ID = 0xFF000000,
+    CAMERA_CMD_SET_CEDARX_RECORDER = 0xFF000001,
 };
 
 /** camera fatal errors */
@@ -272,6 +302,34 @@ typedef struct camera_frame_metadata {
     camera_face_t *faces;
 } camera_frame_metadata_t;
 
+/**
+ * The metadata of the face detection result.
+ */
+typedef struct camera_face_smile_status {
+    /**
+     * The number of detected faces in the frame.
+     */
+    int32_t number_of_smiles;
+    /**
+     * An array of the detected smiles. The length is number_of_smiles.
+     */
+    int32_t *smiles;
+} camera_face_smile_status_t;
+
+
+/**
+ * The metadata of the face detection result.
+ */
+typedef struct camera_face_blink_status {
+    /**
+     * The number of detected faces in the frame.
+     */
+    int32_t number_of_blinks;
+    /**
+     * An array of the detected blinks. The length is number_of_blinks.
+     */
+    int32_t *blinks;
+} camera_face_blink_status_t;
 __END_DECLS
 
 #endif /* SYSTEM_CORE_INCLUDE_ANDROID_CAMERA_H */

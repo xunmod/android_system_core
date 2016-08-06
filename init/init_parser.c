@@ -99,6 +99,9 @@ static int lookup_keyword(const char *s)
         if (!strcmp(s, "xec")) return K_exec;
         if (!strcmp(s, "xport")) return K_export;
         break;
+    case 'f':
+        if (!strcmp(s, "ormat_userdata")) return K_format_userdata;
+        break;
     case 'g':
         if (!strcmp(s, "roup")) return K_group;
         break;
@@ -148,6 +151,7 @@ static int lookup_keyword(const char *s)
         if (!strcmp(s, "etprop")) return K_setprop;
         if (!strcmp(s, "etrlimit")) return K_setrlimit;
         if (!strcmp(s, "etsebool")) return K_setsebool;
+        if (!strcmp(s, "how_initlogo")) return K_show_initlogo;
         if (!strcmp(s, "ocket")) return K_socket;
         if (!strcmp(s, "tart")) return K_start;
         if (!strcmp(s, "top")) return K_stop;

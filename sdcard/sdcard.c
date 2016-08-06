@@ -40,6 +40,7 @@
 #include <cutils/hashmap.h>
 #include <cutils/log.h>
 #include <cutils/multiuser.h>
+#include <cutils/sched_policy.h>
 
 #include <private/android_filesystem_config.h>
 
@@ -115,7 +116,7 @@
 #define MAX_REQUEST_SIZE (sizeof(struct fuse_in_header) + sizeof(struct fuse_write_in) + MAX_WRITE)
 
 /* Default number of threads. */
-#define DEFAULT_NUM_THREADS 2
+#define DEFAULT_NUM_THREADS 4
 
 /* Pseudo-error constant used to indicate that no fuse status is needed
  * or that a reply has already been written. */
@@ -1851,7 +1852,7 @@ static int run(const char* source_path, const char* dest_path, uid_t uid,
         ERROR("cannot setgroups: %s\n", strerror(errno));
         goto error;
     }
-
+    set_sched_policy(getpid(), SP_BACKGROUND);
     res = setgid(gid);
     if (res < 0) {
         ERROR("cannot setgid: %s\n", strerror(errno));

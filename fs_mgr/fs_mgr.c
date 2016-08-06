@@ -89,7 +89,81 @@ static int wait_for_file(const char *filename, int timeout)
     return ret;
 }
 
-static void check_fs(char *blk_device, char *fs_type, char *target)
+/* setupfs, format a device to ext4 */
+const char *mkext4fs = "/system/bin/make_ext4fs";
+
+int setup_ext4(const char *blockdev)
+{
+    char buf[256], path[128];
+    pid_t child;
+    int status, n;
+    bool neadSetFixedSize = false;
+
+    /*if is partition to record log, this partition has fixed size for filesystem*/
+    if (!memcmp(blockdev, "/dev/block/by-name/alog", 23)) {
+        neadSetFixedSize = true;
+    }
+
+	/* we might be looking at an indirect reference */
+    n = readlink(blockdev, path, sizeof(path) - 1);	
+	if (n < 0) {
+		fprintf(stderr, "readlink err: %d\n", errno);
+		n = strlen(blockdev);	
+		strcpy(path, blockdev);
+	}
+
+    if (n > 0) {
+        path[n] = 0;
+        if (!memcmp(path, "/dev/block/", 11))
+            blockdev = path + 11;
+    }
+
+    if (strchr(blockdev,'/')) {
+        fprintf(stderr, "not a block device name: %s\n", blockdev);
+        return 0;
+    }
+    
+    sprintf(buf,"/sys/fs/ext4/%s", blockdev);
+    if (access(buf, F_OK) == 0) {
+        fprintf(stderr, "device %s already has a filesystem\n", blockdev);
+        return 0;
+    }
+    sprintf(buf, "/dev/block/%s", blockdev);
+
+    fprintf(stderr, "+++\n");
+    
+tryagain:
+	ERROR("begin to format ext4 buffer : %s", buf);
+    child = fork();
+    if (child < 0) {
+        fprintf(stderr, "error: fork failed\n");
+        return 0;
+    }
+    if (child == 0) {
+        if  (neadSetFixedSize) {
+            /*log partition use 64MB filesystem to record android log and kernel log
+               use the last 16MB to record kernel crash,so the memory size of this
+               partition must equal to or larger than 80MB*/
+            execl(mkext4fs, mkext4fs, "-l 67108864",  buf, NULL);
+        } else {
+            execl(mkext4fs, mkext4fs, buf, NULL);
+        }
+    }else{    	
+		waitpid(child, &status, 0);
+		ERROR("finish format to ext4: %s",buf);
+		if (WEXITSTATUS(status) != 0) {
+			ERROR("exec: pid %1d exited with return code %d: %s", (int)child, WEXITSTATUS(status), strerror(status));
+			sleep(3);
+			goto tryagain;
+		}
+    }
+	
+    //while (waitpid(-1, &status, 0) != child) ;
+
+    return 1;
+}
+
+static void check_fs(char *blk_device, char *fs_type, char *target, bool format)
 {
     int status;
     int ret;
@@ -120,6 +194,8 @@ static void check_fs(char *blk_device, char *fs_type, char *target)
         INFO("%s(): mount(%s,%s,%s)=%d\n", __func__, blk_device, target, fs_type, ret);
         if (!ret) {
             umount(target);
+        } else if (format) {
+            setup_ext4(blk_device);
         }
 
         /*
@@ -292,6 +368,9 @@ static int mount_with_alternatives(struct fstab *fstab, int start_idx, int *end_
       return -1;
     }
 
+    char key_loc[PROPERTY_VALUE_MAX];
+    fs_mgr_get_crypt_info(fstab, key_loc, 0, sizeof(key_loc));
+
     /* Hunt down an fstab entry for the same mount point that might succeed */
     for (i = start_idx;
          /* We required that fstab entries for the same mountpoint be consecutive */
@@ -309,8 +388,21 @@ static int mount_with_alternatives(struct fstab *fstab, int start_idx, int *end_
             }
 
             if (fstab->recs[i].fs_mgr_flags & MF_CHECK) {
+                int crypt_flag = fstab->recs[i].fs_mgr_flags & (MF_CRYPT | MF_FORCECRYPT);
+                bool is_crypted = false;
+                if (crypt_flag != 0 && key_loc != NULL) {
+                    char buffer[4] = {0};
+                    int key_fd = open(key_loc, O_RDONLY);
+                    if (key_fd > 0) {
+                        int key_ret = read(key_fd, buffer, 4);
+                        close(key_fd);
+                        if (key_ret > 0) {
+                            is_crypted = buffer[0] == 0xC4 && buffer[1] == 0xB1 && buffer[2] == 0xB5 && buffer[3] == 0xD0;
+                        }
+                    }
+                }
                 check_fs(fstab->recs[i].blk_device, fstab->recs[i].fs_type,
-                         fstab->recs[i].mount_point);
+                         fstab->recs[i].mount_point, !is_crypted);
             }
             if (!__mount(fstab->recs[i].blk_device, fstab->recs[i].mount_point, &fstab->recs[i])) {
                 *attempted_idx = i;
@@ -521,7 +613,7 @@ int fs_mgr_do_mount(struct fstab *fstab, char *n_name, char *n_blk_device,
 
         if (fstab->recs[i].fs_mgr_flags & MF_CHECK) {
             check_fs(n_blk_device, fstab->recs[i].fs_type,
-                     fstab->recs[i].mount_point);
+                     fstab->recs[i].mount_point, false);
         }
 
         if ((fstab->recs[i].fs_mgr_flags & MF_VERIFY) && device_is_secure()) {

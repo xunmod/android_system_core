@@ -254,14 +254,84 @@ int do_enable(int nargs, char **args)
     return 0;
 }
 
+/* exec <path> <arg1> <arg2> ... */
+#define MAX_PARAMETERS 64
 int do_exec(int nargs, char **args)
 {
-    return -1;
+    pid_t pid;
+    int status, i, j;
+    char *par[MAX_PARAMETERS];
+
+    if (nargs > MAX_PARAMETERS) {
+        return -1;
+    }
+
+    for(i=0, j=1; i<(nargs-1) ;i++,j++) {
+        par[i] = args[j];
+    }
+
+    par[i] = (char*)0;
+    pid = fork();
+    if (!pid)
+    {
+        char tmp[32];
+        int fd, sz;
+        get_property_workspace(&fd, &sz);
+        sprintf(tmp, "%d,%d", dup(fd), sz);
+        setenv("ANDROID_PROPERTY_WORKSPACE", tmp, 1);
+        execve(par[0],par,environ);
+        exit(0);
+    } else {
+        waitpid(pid, &status, 0);
+        if (WEXITSTATUS(status) != 0) {
+            ERROR("exec: pid %1d exited with return code %d: %s", (int)pid, WEXITSTATUS(status), strerror(status));
+        }
+    }
+
+    return 0;
 }
 
 int do_export(int nargs, char **args)
 {
     return add_environment(args[1], args[2]);
+}
+
+int do_format_userdata(int nargs, char **args)
+{
+ERROR("-----------rogge---------------do_format_userdata");
+    const char * devicePath = args[1];
+    char bootsector[512];
+    int fd;
+    pid_t child;
+    int status;
+
+    property_set("ro.udisk.label", args[2]);
+    fd = open(devicePath, O_RDONLY);
+    if (fd <= 0) {
+        ERROR("open device error: %s", strerror(errno));
+        return 1;
+    }
+    memset(bootsector, 0, 512);
+    read(fd, bootsector, 512);
+    close(fd);
+    if ((bootsector[510]==0x55) && (bootsector[511]==0xaa)) {
+        ERROR("dont need format %s", devicePath);
+        return 1;
+    } else {
+ERROR("-----------rogge---------------start format");
+        INFO("start format %s", devicePath);
+        child = fork();
+        if (child == 0) {
+            INFO("fork to format %s", devicePath);
+            execl("/system/bin/logwrapper", "/system/bin/logwrapper", "/system/bin/newfs_msdos",
+                    "-F", "32", "-O", "android", "-c", "8", "-L", args[2], args[1], NULL);
+            exit(-1);
+        }
+        INFO("wait for format %s", devicePath);
+        while (waitpid(-1, &status, 0) != child);
+        INFO("format %s ok", devicePath);
+        return 1;
+    }
 }
 
 int do_hostname(int nargs, char **args)
@@ -576,6 +646,14 @@ int do_swapon_all(int nargs, char **args)
     fs_mgr_free_fstab(fstab);
 
     return ret;
+}
+
+#define INIT_IMAGE_FILE       "/system/media/initlogo.rle"
+extern int load_argb8888_image(char *file_name);
+
+int do_show_initlogo(int nargs, char **args)
+{
+    return load_argb8888_image(INIT_IMAGE_FILE);
 }
 
 int do_setcon(int nargs, char **args) {

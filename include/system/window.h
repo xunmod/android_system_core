@@ -264,6 +264,11 @@ enum {
     NATIVE_WINDOW_STICKY_TRANSFORM = 11,
 };
 
+enum
+{
+	NATIVE_WINDOW_CMD_GET_SURFACE_TEXTURE_TYPE = 0,
+};
+
 /* Valid operations for the (*perform)() hook.
  *
  * Values marked as 'deprecated' are supported, but have been superceded by
@@ -294,6 +299,12 @@ enum {
     NATIVE_WINDOW_SET_POST_TRANSFORM_CROP   = 16,   /* private */
     NATIVE_WINDOW_SET_BUFFERS_STICKY_TRANSFORM = 17,/* private */
     NATIVE_WINDOW_SET_SIDEBAND_STREAM       = 18,
+
+	NATIVE_WINDOW_GET_OUTPUT_TYPE           = 19,   /* 0: GPU 1:DE*/
+    NATIVE_WINDOW_SET_VIDEO_BUFFERS_INFO    = 20,   /* phy address*/
+    NATIVE_WINDOW_SET_DIT_INFO              = 21,   /* set deinterlace param */
+	NATIVE_WINDOW_SETPARAMETER              = 50,
+	NATIVE_WINDOW_GETPARAMETER              = 51
 };
 
 /* parameter for NATIVE_WINDOW_[API_][DIS]CONNECT */
@@ -315,6 +326,9 @@ enum {
     /* Buffers will be queued by the the camera HAL.
      */
     NATIVE_WINDOW_API_CAMERA = 4,
+    NATIVE_WINDOW_API_MEDIA_HW = 5,
+
+    NATIVE_WINDOW_API_CAMERA_HW = 6,
 };
 
 /* parameter for NATIVE_WINDOW_SET_BUFFERS_TRANSFORM */

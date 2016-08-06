@@ -28,6 +28,15 @@ __BEGIN_DECLS
 
 struct ion_handle;
 
+
+typedef struct {
+    ion_user_handle_t handle;
+    unsigned int phys_addr;
+    unsigned int size;
+}sunxi_phys_data;
+#define ION_IOC_SUNXI_PHYS_ADDR     7
+
+
 int ion_open();
 int ion_close(int fd);
 int ion_alloc(int fd, size_t len, size_t align, unsigned int heap_mask,
@@ -40,6 +49,7 @@ int ion_map(int fd, ion_user_handle_t handle, size_t length, int prot,
             int flags, off_t offset, unsigned char **ptr, int *map_fd);
 int ion_share(int fd, ion_user_handle_t handle, int *share_fd);
 int ion_import(int fd, int share_fd, ion_user_handle_t *handle);
+unsigned long ion_getphyadr(int fd, ion_user_handle_t handle);
 
 __END_DECLS
 

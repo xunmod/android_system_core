@@ -112,6 +112,7 @@ LOCAL_SRC_FILES := $(commonSources) \
         debugger.c \
         klog.c \
         memory.c \
+        misc_rw.c \
         partition_utils.c \
         properties.c \
         qtaguid.c \

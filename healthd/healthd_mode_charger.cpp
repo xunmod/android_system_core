@@ -40,6 +40,10 @@
 #include <cutils/uevent.h>
 #include <cutils/properties.h>
 
+#include <pthread.h>
+#include <sys/time.h>
+#include <linux/android_alarm.h>
+
 #ifdef CHARGER_ENABLE_SUSPEND
 #include <suspend/autosuspend.h>
 #endif
@@ -65,13 +69,16 @@ char *locale;
 
 #define BATTERY_UNKNOWN_TIME    (2 * MSEC_PER_SEC)
 #define POWER_ON_KEY_TIME       (2 * MSEC_PER_SEC)
-#define UNPLUGGED_SHUTDOWN_TIME (10 * MSEC_PER_SEC)
+#define UNPLUGGED_SHUTDOWN_TIME (3 * MSEC_PER_SEC)
 
 #define BATTERY_FULL_THRESH     95
 
 #define LAST_KMSG_PATH          "/proc/last_kmsg"
 #define LAST_KMSG_PSTORE_PATH   "/sys/fs/pstore/console-ramoops"
 #define LAST_KMSG_MAX_SZ        (32 * 1024)
+
+#define WAKEALARM_PATH        "/sys/class/rtc/rtc0/wakealarm"
+#define ALARM_IN_BOOTING_PATH        "/sys/module/rtc_sunxi/parameters/alarm_in_booting"
 
 #define LOGE(x...) do { KLOG_ERROR("charger", x); } while (0)
 #define LOGW(x...) do { KLOG_WARNING("charger", x); } while (0)
@@ -174,6 +181,90 @@ static int char_width;
 static int char_height;
 static bool minui_inited;
 
+static int alarm_fd = 0;
+static pthread_t tid_alarm;
+
+static int acquire_wake_lock_timeout(long long timeout);
+
+static long get_wakealarm_sec(void)
+{
+    int fd = 0, ret = 0;
+    unsigned long wakealarm_time = 0;
+    char buf[32] = { 0 };
+
+    fd = open(WAKEALARM_PATH, O_RDWR);
+    if (fd < 0) {
+        LOGE("open %s failed, return=%d\n", WAKEALARM_PATH, fd);
+        return fd;
+    }
+
+    ret = read(fd, buf, sizeof(buf));
+    if (ret > 0) {
+        wakealarm_time = strtoul(buf, NULL, 0);
+        LOGW("%s, %d, read wakealarm_time=%lu\n", __func__, __LINE__, wakealarm_time);
+
+        // Clean initial wakealarm.
+        // We will set wakealarm again use ANDROID_ALARM_SET ioctl.
+        // Initial wakealarm's time unit is second, have conflict with
+        // nanosecond alarmtimer in alarmtimer_suspend().
+        snprintf(buf, sizeof(buf), "0");
+        write(fd, buf, strlen(buf) + 1);
+        LOGW("%s, %d, write wakealarm_time=0\n", __func__, __LINE__);
+
+        close(fd);
+        return wakealarm_time;
+    }
+
+    close(fd);
+    return ret;
+}
+
+static long is_alarm_in_booting(void)
+{
+    int fd = 0, ret = 0;
+    unsigned long alarm_in_booting = 0;
+    char buf[32] = { 0 };
+
+    fd = open(ALARM_IN_BOOTING_PATH, O_RDONLY);
+    if (fd < 0) {
+        LOGE("open %s failed, return=%d\n", ALARM_IN_BOOTING_PATH, fd);
+        return fd;
+    }
+
+    ret = read(fd, buf, sizeof(buf));
+    if (ret > 0) {
+        alarm_in_booting = strtoul(buf, NULL, 0);
+        LOGW("%s, %d, read alarm_in_booting=%lu\n", __func__, __LINE__, alarm_in_booting);
+    }
+
+    close(fd);
+    return alarm_in_booting;
+}
+
+void *alarm_thread_handler(void *arg)
+{
+    struct timespec *ts = (struct timespec *)arg;
+    int ret = 0;
+    if (alarm_fd <= 0) {
+        LOGE("%s, %d, alarm_fd=%d and exit\n", __func__, __LINE__, alarm_fd);
+        return NULL;
+    }
+
+    while (true) {
+        ret = ioctl(alarm_fd, ANDROID_ALARM_WAIT);
+        if (ret & ANDROID_ALARM_RTC_SHUTDOWN_WAKEUP_MASK) {
+            LOGW("%s, %d, alarm wakeup rebooting\n", __func__, __LINE__);
+            acquire_wake_lock_timeout(UNPLUGGED_SHUTDOWN_TIME);
+            android_reboot(ANDROID_RB_RESTART, 0, 0);
+        } else {
+            LOGW("%s, %d, alarm wait wakeup by %d\n", __func__, __LINE__, ret);
+        }
+    }
+
+    return NULL;
+}
+
+
 /* current time in milliseconds */
 static int64_t curr_time_ms(void)
 {
@@ -254,6 +345,20 @@ static int request_suspend(bool /*enable*/)
 }
 #endif
 
+static int acquire_wake_lock_timeout(long long timeout)
+{
+    int fd,ret;
+    char str[64];
+    fd = open("/sys/power/wake_lock", O_WRONLY, 0);
+    if (fd < 0)
+        return -1;
+
+    sprintf(str,"charge %lld",timeout);
+    ret = write(fd, str, strlen(str));
+    close(fd);
+    return ret;
+}
+
 static int draw_text(const char *str, int x, int y)
 {
     int str_len_px = gr_measure(str);
@@ -323,9 +428,13 @@ static void redraw_screen(struct charger *charger)
 
     /* try to display *something* */
     if (batt_anim->capacity < 0 || batt_anim->num_frames == 0)
+	{
         draw_unknown(charger);
-    else
+    }
+	else
+	{
         draw_battery(charger);
+	}
     gr_flip();
 }
 
@@ -392,7 +501,6 @@ static void update_screen_state(struct charger *charger, int64_t now)
         LOGV("[%" PRId64 "] animation starting\n", now);
         if (batt_prop && batt_prop->batteryLevel >= 0 && batt_anim->num_frames != 0) {
             int i;
-
             /* find first frame given current capacity */
             for (i = 1; i < batt_anim->num_frames; i++) {
                 if (batt_prop->batteryLevel < batt_anim->frames[i].min_capacity)
@@ -530,12 +638,13 @@ static void process_key(struct charger *charger, int code, int64_t now)
                 /* if the key is pressed but timeout hasn't expired,
                  * make sure we wake up at the right-ish time to check
                  */
+                request_suspend(false);
                 set_next_key_check(charger, key, POWER_ON_KEY_TIME);
             }
         } else {
             /* if the power key got released, force screen state cycle */
             if (key->pending) {
-                request_suspend(false);
+                //request_suspend(false);
                 kick_animation(charger->batt_anim);
             }
         }
@@ -662,6 +771,42 @@ static void charger_event_handler(uint32_t /*epevents*/)
         ev_dispatch();
 }
 
+static void init_shutdown_alarm(void)
+{
+    long alarm_secs, alarm_in_booting = 0;
+    struct timeval now_tv = { 0, 0 };
+    struct timespec ts;
+    alarm_fd = open("/dev/alarm", O_RDWR);
+    if (alarm_fd < 0) {
+        LOGE("open /dev/alarm failed, ret=%d\n", alarm_fd);
+        return;
+    }
+
+    alarm_secs = get_wakealarm_sec();
+    // have alarm irq in booting ?
+    alarm_in_booting = is_alarm_in_booting();
+    gettimeofday(&now_tv, NULL);
+
+    LOGW("gettimeofday, sec=%ld, microsec=%ld, alarm_secs=%ld, alarm_in_booting=%ld\n",
+         (long)now_tv.tv_sec, (long)now_tv.tv_usec, alarm_secs, alarm_in_booting);
+
+    // alarm interval time == 0 and have no alarm irq in booting
+    if (alarm_secs <= 0 && (alarm_in_booting != 1))
+        return;
+
+    if (alarm_secs)
+        ts.tv_sec = alarm_secs;
+    else
+        ts.tv_sec = (long)now_tv.tv_sec + 1;
+
+    ts.tv_nsec = 0;
+
+    ioctl(alarm_fd, ANDROID_ALARM_SET(ANDROID_ALARM_RTC_SHUTDOWN_WAKEUP), &ts);
+
+    pthread_create(&tid_alarm, NULL, alarm_thread_handler, NULL);
+
+    return;
+}
 void healthd_mode_charger_init(struct healthd_config* config)
 {
     int ret;
@@ -672,6 +817,8 @@ void healthd_mode_charger_init(struct healthd_config* config)
     dump_last_kmsg();
 
     LOGW("--------------- STARTING CHARGER MODE ---------------\n");
+
+    init_shutdown_alarm();
 
     ret = ev_init(input_callback, charger);
     if (!ret) {

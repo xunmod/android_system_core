@@ -67,7 +67,7 @@ on init
 
     # See storage config details at http://source.android.com/tech/storage/
     mkdir /mnt/shell 0700 shell shell
-    mkdir /mnt/media_rw 0700 media_rw media_rw
+    mkdir /mnt/media_rw 0770 media_rw media_rw
     mkdir /storage 0751 root sdcard_r
 
     # Directory for putting things only root should see.
@@ -527,6 +527,9 @@ service vold /system/bin/vold
     socket vold stream 0660 root mount
     ioprio be 2
 
+service engsetmacaddr /system/bin/setmacaddr /data/wifimac.txt 
+    class main
+    oneshot
 service netd /system/bin/netd
     class main
     socket netd stream 0660 root system
@@ -581,7 +584,7 @@ service encrypt /system/bin/vdc --wait cryptfs enablecrypto inplace default
 service bootanim /system/bin/bootanimation
     class core
     user graphics
-    group graphics audio
+    group graphics audio media
     disabled
     oneshot
 

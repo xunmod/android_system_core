@@ -260,8 +260,9 @@ static void wakealarm_event(uint32_t /*epevents*/) {
 }
 
 static void wakealarm_init(void) {
-    wakealarm_fd = timerfd_create(CLOCK_BOOTTIME_ALARM, TFD_NONBLOCK);
-    if (wakealarm_fd == -1) {
+       //change CLOCK_BOOTTIME_ALARM to CLOCK_MONOTONIC, avoid wakeup frequently!
+		wakealarm_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+		if (wakealarm_fd == -1) {
         KLOG_ERROR(LOG_TAG, "wakealarm_init: timerfd_create failed\n");
         return;
     }

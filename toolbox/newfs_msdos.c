@@ -589,6 +589,10 @@ int newfs_msdos_main(int argc, char *argv[])
         x = (u_int64_t)(bpb.bsec - x1) * bpb.bps * NPB /
                 (bpb.spc * bpb.bps * NPB + fat / BPN * bpb.nft);
         x2 = howmany((RESFTE + MIN(x, maxcls(fat))) * (fat / BPN), bpb.bps * NPB);
+        if ((fat == 32) && (bpb.bspf == 0)) {
+            if (((bpb.res + bpb.nft*x2)%bpb.spc) != 0)
+                x2 += (bpb.spc -(bpb.res + bpb.nft*x2)%bpb.spc)/bpb.nft;
+        }
         if (set_spf) {
             if (!bpb.bspf) {
                 bpb.bspf = x2;

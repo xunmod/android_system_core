@@ -253,6 +253,7 @@ int property_set(const char *name, const char *value)
         selinux_reload_policy();
     }
     property_changed(name, value);
+
     return 0;
 }
 
@@ -356,6 +357,7 @@ void get_property_workspace(int *fd, int *sz)
 }
 
 static void load_properties_from_file(const char *, const char *);
+void property_opt_for_mem(void);
 
 /*
  * Filter is used to decide which properties to load: NULL loads all keys,
@@ -415,6 +417,8 @@ static void load_properties(char *data, const char *filter)
             property_set(key, value);
         }
     }
+
+	property_opt_for_mem();
 }
 
 /*
@@ -560,6 +564,7 @@ void start_property_service(void)
 
     listen(fd, 8);
     property_set_fd = fd;
+
 }
 
 int get_property_set_fd()
