@@ -648,14 +648,6 @@ int do_swapon_all(int nargs, char **args)
     return ret;
 }
 
-#define INIT_IMAGE_FILE       "/system/media/initlogo.rle"
-extern int load_argb8888_image(char *file_name);
-
-int do_show_initlogo(int nargs, char **args)
-{
-    return load_argb8888_image(INIT_IMAGE_FILE);
-}
-
 int do_setcon(int nargs, char **args) {
     if (is_selinux_enabled() <= 0)
         return 0;
